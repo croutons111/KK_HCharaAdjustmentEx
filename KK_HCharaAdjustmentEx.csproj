@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AssemblyName>KK_HCharaAdjustmentEx</AssemblyName>
+    <RootNamespace>KK_HCharaAdjustmentEx</RootNamespace>
+    <Description>H scene character position adjustment - save and auto-restore per animation/character combination</Description>
+    <Version>1.13.10</Version>
+
+    <TargetFramework>net35</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <OutputPath>bin\$(Configuration)\</OutputPath>
+  </PropertyGroup>
+
+  <!-- VRHScene はコンパイル不要 (実行時リフレクションでパッチ)。
+       非VR Assembly-CSharp のみ参照すれば非VR/VR 両モードで動作する。 -->
+
+  <Target Name="DeployToGame" AfterTargets="Build">
+    <Copy SourceFiles="$(OutputPath)$(AssemblyName).dll"
+          DestinationFolder="$(KKPath)\BepInEx\plugins"
+          SkipUnchangedFiles="true" />
+    <Message Text="Deployed: $(AssemblyName).dll → BepInEx/plugins/" Importance="high" />
+  </Target>
+
+</Project>
