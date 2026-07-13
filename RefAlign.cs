@@ -182,7 +182,7 @@ namespace KK_HCharaAdjustmentEx
                 if (!_coupCache.TryGetValue(measKey, out int resolved))
                 {
                     if (anim.IsInTransition(0)) return applied;   // 遷移明けの姿勢で判定する
-                    resolved = ResolveHoushiCoup(flags, cha, applied);
+                    resolved = ResolveHoushiCoup(HSceneHooks.MaleOf(flags), cha, applied);
                     if (resolved < 0) return applied;             // dan 未解決等 → 次フレーム再試行
                     _coupCache[measKey] = resolved;
                     Plugin.Logger.LogInfo(string.Format(
@@ -256,8 +256,11 @@ namespace KK_HCharaAdjustmentEx
 
         // 対象モードの結合点種別（-1=対象外）
         private static int CouplingFor(HFlag flags, ChaControl cha)
+            => CouplingForInfo(flags.nowAnimationInfo, cha);
+
+        // info 直受け版（外部API＝HSceneProc 外のペアと共用。本シーン経路と同一ロジック）
+        private static int CouplingForInfo(HSceneProc.AnimationListInfo? info, ChaControl cha)
         {
-            var info = flags.nowAnimationInfo;
             int mode = info != null ? (int)info.mode : -1;
             switch (mode)
             {
@@ -292,9 +295,8 @@ namespace KK_HCharaAdjustmentEx
         // 口・胸は候補にしない（kindHoushi=1/2 のメタデータが信頼できるため。
         // 幾何に含めるとフェラ系で「腿に添えた手」が dan 基部に近く口が系統的に負ける）。
         // 距離は彼女のシフト適用前の位置で比較する（適用中シフトを差し引き＝判定の安定性確保）。
-        private static int ResolveHoushiCoup(HFlag flags, ChaControl cha, Vector3 appliedWorld)
+        private static int ResolveHoushiCoup(ChaControl? male, ChaControl cha, Vector3 appliedWorld)
         {
-            var male = HSceneHooks.MaleOf(flags);
             var body = male != null ? male.objBodyBone : null;
             var dan  = body != null ? body.transform.FindLoop("cm_J_dan101_00") : null;
             if (dan == null) return -1;
@@ -393,6 +395,10 @@ namespace KK_HCharaAdjustmentEx
         // refCoupling − actualCoupling ≈ (sEdge/s − 1) × (coupling − cf_n_height)。
         // 精密値は同時採取が上書きする。左右無効・小柄の沈み禁止・MaxShift は本採取と揃える。
         private static Vector3 ComputeSeedLocal(ChaControl cha, int coup, int bound, float s, int idx)
+            => ComputeSeedLocalFrame(cha, coup, bound, s, HSceneHooks.VanillaRotOf(idx));
+
+        // 回転フレーム指定版（本シーン=vanillaRot / 外部API=キャラの現在ルート回転）
+        private static Vector3 ComputeSeedLocalFrame(ChaControl cha, int coup, int bound, float s, Quaternion frameRot)
         {
             if (s <= 0f) return Vector3.zero;
             var couplingW = CouplingPos(cha, coup);
@@ -401,11 +407,52 @@ namespace KK_HCharaAdjustmentEx
             if (couplingW == null || h == null) return Vector3.zero;
             float sEdge = bound == 0 ? S_LO : S_HI;
             Vector3 seedWorld = (sEdge / s - 1f) * (couplingW.Value - h.transform.position);
-            Vector3 seed = Quaternion.Inverse(HSceneHooks.VanillaRotOf(idx)) * seedWorld;
+            Vector3 seed = Quaternion.Inverse(frameRot) * seedWorld;
             seed.x = 0f;                                      // 左右は常に無効（本採取と同じ）
             if (bound == 0 && seed.y < 0f) seed.y = 0f;       // 小柄の沈み禁止（同上）
             if (seed.magnitude > MaxShift) seed = seed.normalized * MaxShift;
             return seed;
+        }
+
+        // ── 外部プラグイン連携（HCharaAdjustApi 経由・例: KK_Rankou のゲストペア）──────
+        // HSceneProc 外のペアに適用する自動補正シフト（ワールド）をワンショットで計算する。
+        // 同時採取（参照ボディ）は「共有資源の直列採取＋LateUpdate 同位相測定＋継続適用」が
+        // 前提のため外部ペアには使わず、解析シード（一次近似）のみ返す。
+        // 帯域内（正規スライダー範囲）のキャラは完全にゼロ＝無介入（本シーンと同じ）。
+        internal static Vector3 ComputeExternalShiftWorld(
+            ChaControl female, ChaControl? male, HSceneProc.AnimationListInfo info)
+        {
+            if (Plugin.RefAlignEnabled == null || !Plugin.RefAlignEnabled.Value) return Vector3.zero;
+            if (female == null || info == null) return Vector3.zero;
+
+            int coup = CouplingForInfo(info, female);
+            if (coup < 0) return Vector3.zero;                 // 対象外モード（床・立ち・壁の愛撫等）
+            if (coup == CoupAuto)
+            {
+                coup = ResolveHoushiCoup(male, female, Vector3.zero);   // 外部はシフト適用前に呼ばれる
+                if (coup < 0)
+                {
+                    Plugin.Logger.LogWarning(
+                        "[HCharaAdjustmentEx] API: 奉仕結合点の幾何判定不能（男性 dan 未解決）→ 自動補正なしで続行（要調査）");
+                    return Vector3.zero;
+                }
+            }
+
+            float s = MeasureScaleDirect(female);
+            if (s <= 0f) return Vector3.zero;                  // 測定不能はバニラ（本シーンと同じ）
+            if (s >= S_LO - BandEps && s <= S_HI + BandEps) return Vector3.zero;   // 正規範囲内=無介入
+            int bound = s < S_LO ? 0 : 1;
+
+            Quaternion rot = female.transform.rotation;
+            Vector3 local = ComputeSeedLocalFrame(female, coup, bound, s, rot);
+            if (local == Vector3.zero) return Vector3.zero;
+            local = ApplyCap(local, s, bound, coup);           // Mouth Shift Scale / Shift Cap を反映
+            Vector3 world = rot * local;
+            Plugin.Logger.LogInfo(string.Format(
+                "[HCharaAdjustmentEx] API自動補正(シード): {0} s={1:F4}（{2}参照）coup={3} shift=({4:F3},{5:F3},{6:F3})",
+                female.chaFile?.parameter?.fullname ?? female.name, s,
+                bound == 0 ? "下限" : "上限", CoupName(coup), world.x, world.y, world.z));
+            return world;
         }
 
         // ── 同時採取 ─────────────────────────────────────────────────────────

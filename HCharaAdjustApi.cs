@@ -6,14 +6,15 @@ namespace KK_HCharaAdjustmentEx
 {
     /// <summary>
     /// 外部プラグイン連携用 API（例: KK_Rankou のゲスト補正）。
-    /// v1.12 で自動補正は「帯域方式の参照アライメント」（Hシーン本体のみ）に一本化され、
-    /// スケール比 comp は撤去された。本 API の comp 系は互換のため残置し常に false を返す。
-    /// TryComputeAdjustment は「完全一致キーの手動残差」のみ返す（外部キャラへの
-    /// 参照アライメント適用は未対応・TODO）。
+    /// v1.12 で自動補正は「帯域方式の参照アライメント」に一本化され、スケール比 comp は
+    /// 撤去された。本 API の comp 系は互換のため残置し常に false を返す。
+    /// 【ApiVersion 4】TryComputeAdjustment は本シーンと同じ排他優先順:
+    ///   完全一致キーの手動保存（絶対デルタ・手動が大正義）＞ 自動補正（帯域シード）＞ ゼロ。
+    /// 自動補正は解析シード（一次近似）のワンショット計算＝帯域内キャラは完全にゼロ。
     /// </summary>
     public static class HCharaAdjustApi
     {
-        public const int ApiVersion = 3;
+        public const int ApiVersion = 4;
 
         private class Bones
         {
@@ -34,9 +35,11 @@ namespace KK_HCharaAdjustmentEx
         { compWorld = Vector3.zero; return false; }
 
         /// <summary>
-        /// 【ApiVersion 3】完全一致キー（同カード組で保存した手動補正）の残差を返す。
+        /// 【ApiVersion 4】外部ペア（HSceneProc 外）に足すべきワールドオフセットを返す。
+        /// 本シーンと同じ排他優先順（v1.6.0「手動が大正義」・合算しない）:
+        ///   1. 完全一致キーの手動保存あり → 絶対デルタのみ（女・男とも。自動補正は加えない）
+        ///   2. なし → 女性のみ自動補正（帯域外キャラの解析シード。帯域内・対象外モードはゼロ）
         /// info はゲーム本体 lstAnimInfo の**同一インスタンス**を渡すこと（MOD体位の同定が参照比較のため）。
-        /// v1.12 で自動 comp・別カード流用（推定）は撤去＝手動保存が無ければゼロを返す。
         /// female/male とも各キャラの現在ルート回転でワールド化済み＝そのままルート位置に加算してよい。
         /// false = プラグイン無効等で全く計算できない。
         /// </summary>
@@ -51,26 +54,32 @@ namespace KK_HCharaAdjustmentEx
             if (info == null) return true;
             try
             {
-                string key = HSceneHooks.BuildKeyFor(info, female, null, male);
-                var    src = AdjustmentStore.GetEntry(key);
-                if (src == null) return true;   // 手動保存なし＝補正なし
-
-                // 残差（保存時の自動補正を除いた手動分）を各キャラの現在向きでワールド化
-                Vector3 resF = HSceneHooks.ResidualOf(src, 0);
-                Vector3 resM = HSceneHooks.ResidualOf(src, 2);
-                if (resF != Vector3.zero) femaleOffsetWorld = female.transform.rotation * resF;
-                if (male != null && resM != Vector3.zero)
-                    maleOffsetWorld = male.transform.rotation * resM;
-
-                if (resF != Vector3.zero || resM != Vector3.zero)
+                string key  = HSceneHooks.BuildKeyFor(info, female, null, male);
+                var    src  = AdjustmentStore.GetEntry(key);
+                Vector3 absF = HSceneHooks.GetAbs(src, 0);
+                Vector3 absM = HSceneHooks.GetAbs(src, 2);
+                if (absF != Vector3.zero || absM != Vector3.zero)
+                {
+                    // 手動保存＝保存した見た目そのものを再現（自動補正は参照しない）
+                    femaleOffsetWorld = female.transform.rotation * absF;
+                    if (male != null && absM != Vector3.zero)
+                        maleOffsetWorld = male.transform.rotation * absM;
                     Plugin.Logger.LogInfo(string.Format(
-                        "[HCharaAdjustmentEx] API残差適用(完全一致): {0} resF=({1:F3},{2:F3},{3:F3}) resM=({4:F3},{5:F3},{6:F3})",
-                        src.key, resF.x, resF.y, resF.z, resM.x, resM.y, resM.z));
+                        "[HCharaAdjustmentEx] API手動適用(完全一致・絶対デルタ): {0} absF=({1:F3},{2:F3},{3:F3}) absM=({4:F3},{5:F3},{6:F3})",
+                        src!.key, absF.x, absF.y, absF.z, absM.x, absM.y, absM.z));
+                }
+                else
+                {
+                    // 手動保存なし → 自動補正（帯域外の女性のみ・男は基準側でゼロ）
+                    femaleOffsetWorld = RefAlign.ComputeExternalShiftWorld(female, male, info);
+                }
             }
             catch (System.Exception e)
             {
                 Plugin.Logger.LogWarning(
-                    "[HCharaAdjustmentEx] API残差解決失敗 → 補正なしで続行（要調査）: " + e.Message);
+                    "[HCharaAdjustmentEx] API補正解決失敗 → 補正なしで続行（要調査）: " + e.Message);
+                femaleOffsetWorld = Vector3.zero;
+                maleOffsetWorld   = Vector3.zero;
             }
             return true;
         }

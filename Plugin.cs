@@ -13,7 +13,7 @@ namespace KK_HCharaAdjustmentEx
     {
         public const string PluginGuid    = "KK_HCharaAdjustmentEx";
         public const string PluginName    = "KK_HCharaAdjustmentEx";
-        public const string PluginVersion = "1.13.10";
+        public const string PluginVersion = "1.14.0";
 
         internal static new ManualLogSource Logger = null!;
         internal static Plugin Instance = null!;   // RefAlign のコルーチンホスト

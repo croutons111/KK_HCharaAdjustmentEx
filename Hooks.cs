@@ -448,7 +448,8 @@ namespace KK_HCharaAdjustmentEx
             }
         }
 
-        private static Vector3 GetAbs(AdjustmentStore.Entry? entry, int idx)
+        // 絶対デルタ（保存時にユーザーが見た位置そのもの）。外部API HCharaAdjustApi からも使用。
+        internal static Vector3 GetAbs(AdjustmentStore.Entry? entry, int idx)
         {
             if (entry == null) return Vector3.zero;
             return idx == F1 ? entry.f1 : idx == F2 ? entry.f2 : entry.male;
