@@ -13,7 +13,7 @@ namespace KK_HCharaAdjustmentEx
     {
         public const string PluginGuid    = "KK_HCharaAdjustmentEx";
         public const string PluginName    = "KK_HCharaAdjustmentEx";
-        public const string PluginVersion = "1.14.0";
+        public const string PluginVersion = "1.15.0";
 
         internal static new ManualLogSource Logger = null!;
         internal static Plugin Instance = null!;   // RefAlign のコルーチンホスト
@@ -23,7 +23,11 @@ namespace KK_HCharaAdjustmentEx
         public   static bool IsEnabled => MasterEnabled == null || MasterEnabled.Value;
 
         // 自動補正（Auto Adjust）: 参照アライメント。正規スライダー範囲外の体を正規端の参照に整列
-        internal static ConfigEntry<bool>? RefAlignEnabled;
+        // 非VR/VR は同一 cfg を共有するため、モード別トグルは別項目にして IsVRMode で選択する
+        internal static ConfigEntry<bool>? RefAlignEnabled;      // 非VR
+        internal static ConfigEntry<bool>? RefAlignEnabledVR;    // VR
+        internal static ConfigEntry<bool>? PreciseSampling;      // 非VR（既定ON）
+        internal static ConfigEntry<bool>? PreciseSamplingVR;    // VR（既定OFF＝コスト対策）
         internal static ConfigEntry<bool>? ShiftCapEnabled;
         internal static ConfigEntry<float>? MouthShiftScale;
 
@@ -52,7 +56,15 @@ namespace KK_HCharaAdjustmentEx
             MasterEnabled = Config.Bind("General", "Enabled", true,
                 "Enable/disable the whole plugin (OFF = vanilla behavior).");
             RefAlignEnabled = Config.Bind("Auto Adjust", "Enabled", true,
-                "Enable/disable automatic position adjustment.");
+                "Enable/disable automatic position adjustment (desktop / non-VR).");
+            RefAlignEnabledVR = Config.Bind("Auto Adjust", "Enabled (VR)", true,
+                "Enable/disable automatic position adjustment in VR.");
+            PreciseSampling = Config.Bind("Auto Adjust", "Precise Sampling", true,
+                "Refine the automatic adjustment by measuring a hidden reference body (desktop / non-VR). " +
+                "OFF = use the fast analytic approximation only.");
+            PreciseSamplingVR = Config.Bind("Auto Adjust", "Precise Sampling (VR)", false,
+                "Same as Precise Sampling, but for VR. Default OFF: loading and animating the reference body " +
+                "costs CPU time and can cause frame drops in VR. The fast approximation is used instead.");
 
             ShiftCapEnabled = Config.Bind("Auto Adjust", "Shift Cap", false,
                 "Cap the automatic adjustment to avoid over-correction (prevents floating / separation).");

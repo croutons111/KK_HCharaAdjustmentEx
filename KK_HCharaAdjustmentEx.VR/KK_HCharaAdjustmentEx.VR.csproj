@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AssemblyName>KK_HCharaAdjustmentEx.VR</AssemblyName>
+    <RootNamespace>KK_HCharaAdjustmentEx.VR</RootNamespace>
+    <Description>VR controller front-end for KK_HCharaAdjustmentEx (transient position fine-tuning in VR H scenes)</Description>
+    <Version>1.0.0</Version>
+
+    <TargetFramework>net35</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <OutputPath>bin\$(Configuration)\</OutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- VR 版 Assembly-CSharp に差し替え（VRHScene / VRVive* を直接参照するため）。
+         firstpass も VR 側へ（SteamVR_Controller の解決を確実にする） -->
+    <Reference Remove="Assembly-CSharp" />
+    <Reference Remove="Assembly-CSharp-firstpass" />
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(KKPath)\KoikatuVR_Data\Managed\Assembly-CSharp.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Assembly-CSharp-firstpass">
+      <HintPath>$(KKPath)\KoikatuVR_Data\Managed\Assembly-CSharp-firstpass.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine.VR">
+      <HintPath>$(KKPath)\KoikatuVR_Data\Managed\UnityEngine.VR.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <!-- 本体（HCharaAdjustApi）への型安全な参照。DLL は本体側が plugins へ配置する -->
+    <ProjectReference Include="..\KK_HCharaAdjustmentEx\KK_HCharaAdjustmentEx.csproj">
+      <Private>False</Private>
+    </ProjectReference>
+  </ItemGroup>
+
+  <Target Name="DeployToGame" AfterTargets="Build">
+    <Copy SourceFiles="$(OutputPath)$(AssemblyName).dll"
+          DestinationFolder="$(KKPath)\BepInEx\plugins"
+          SkipUnchangedFiles="true" />
+    <Message Text="Deployed: $(AssemblyName).dll → BepInEx/plugins/" Importance="high" />
+  </Target>
+
+</Project>

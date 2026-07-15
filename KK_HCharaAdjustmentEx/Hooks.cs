@@ -64,6 +64,14 @@ namespace KK_HCharaAdjustmentEx
         // 直前フレームで root を強制していたか（ゼロ化した瞬間のバニラ復元用）
         private static readonly bool[] _wasEnforced = new bool[3];
 
+        // 一時オフセット（HCharaAdjustApi 経由・VR コントローラー微調整用）。
+        // 保存しない＝体位変更・スポット移動・シーン終了で必ずゼロへ戻す（VR は一人称/三人称で
+        // 見えが違うため永続化しない設計。ユーザー決定 2026-07-13）。
+        private static readonly Vector3[] _transientOffset = new Vector3[3];
+        // 直前フレームの一時オフセット。変化中（=VR ドラッグ中）はスムージングを通さず
+        // 直接代入する（平滑 12/s の遅延で「ゴム引き」の追従感になるため。実機報告 2026-07-15）。
+        private static readonly Vector3[] _prevTransient = new Vector3[3];
+
         // ─── 非VR: Hシーン開始 ──────────────────────────────────────────────
 
         [HarmonyPostfix]
@@ -223,9 +231,18 @@ namespace KK_HCharaAdjustmentEx
                 _refShiftLogKey[i]        = "";
                 _wasEnforced[i]       = false;
                 _draggedPose[i]       = false;
+                _transientOffset[i]   = Vector3.zero;
             }
             RefAlign.OnSceneReset();
         }
+
+        // ── 一時オフセット（HCharaAdjustApi から） ──
+        internal static void AddTransientOffset(int idx, Vector3 worldDelta)
+        { if (idx >= 0 && idx < 3) _transientOffset[idx] += worldDelta; }
+        internal static Vector3 GetTransientOffset(int idx)
+            => idx >= 0 && idx < 3 ? _transientOffset[idx] : Vector3.zero;
+        internal static void ClearTransientOffsets()
+        { for (int i = 0; i < 3; i++) _transientOffset[i] = Vector3.zero; }
 
         // RefAlign から使う公開アクセサ
         internal static bool TryParseKeyPublic(string key, out string anim, out string cards)
@@ -262,7 +279,10 @@ namespace KK_HCharaAdjustmentEx
 
             // ── 体位変更を検知したら、旧体位でドラッグしたキャラを自動保存 ──
             if (_prevKey != null && key != _prevKey)
+            {
                 FlushAutoSave(_prevKey, _prevPosture);
+                ClearTransientOffsets();   // VR 微調整は体位ごと（持ち越さない・保存しない）
+            }
             _prevKey     = key;
             _prevPosture = GetPosture(flags);
 
@@ -307,20 +327,25 @@ namespace KK_HCharaAdjustmentEx
                 }
 
                 // ── ガイド非表示中＝適用（瞬間移動を避けスムーズに寄せる） ──
-                Vector3 abs = GetAbs(exact, idx);
-                bool active = abs != Vector3.zero || refShift != Vector3.zero;
+                Vector3 abs   = GetAbs(exact, idx);
+                Vector3 trans = _transientOffset[idx];
+                bool active = abs != Vector3.zero || refShift != Vector3.zero || trans != Vector3.zero;
                 if (!active && !_wasEnforced[idx]) continue;   // 補正なし＝何もしない
 
-                // 目標: 完全一致の絶対デルタ（手動が大正義・自動補正を参照しない）＞ 自動補正 ＞ バニラ復帰
-                Vector3 target = abs != Vector3.zero      ? _vanillaRoot[idx] + _vanillaRot[idx] * abs
+                // 目標: (完全一致の絶対デルタ（手動が大正義）＞ 自動補正 ＞ バニラ) ＋ 一時オフセット（VR微調整）
+                Vector3 target = (abs != Vector3.zero      ? _vanillaRoot[idx] + _vanillaRot[idx] * abs
                                : refShift != Vector3.zero ? _vanillaRoot[idx] + refShift
-                               :                            _vanillaRoot[idx];
+                               :                            _vanillaRoot[idx]) + trans;
 
                 Vector3 cur = cha.transform.position;
                 float   dt  = Time.deltaTime;
+                // 一時オフセット変化中（VR ドラッグ中）は遅延ゼロで直接追従。離すと従来のスムージングへ。
+                bool transientMoving = trans != _prevTransient[idx];
+                _prevTransient[idx] = trans;
                 // 大移動（スポット移動・大きな手動配置）は瞬間、補正級の小移動はスムーズに。
                 cha.transform.position =
-                    (dt <= 0f || (target - cur).sqrMagnitude > SmoothSnapDist * SmoothSnapDist)
+                    (dt <= 0f || transientMoving ||
+                     (target - cur).sqrMagnitude > SmoothSnapDist * SmoothSnapDist)
                         ? target
                         : Vector3.Lerp(cur, target, 1f - Mathf.Exp(-SmoothRate * dt));
 
@@ -422,6 +447,7 @@ namespace KK_HCharaAdjustmentEx
 
         private static void CaptureVanilla(HFlag flags)
         {
+            ClearTransientOffsets();   // スポット移動/シーン開始＝バニラ基準が変わる → VR 微調整もリセット
             for (int idx = 0; idx < 3; idx++)
             {
                 var cha = GetCha(flags, idx);

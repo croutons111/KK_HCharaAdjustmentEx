@@ -15,7 +15,9 @@ H シーンでは体位によってキャラの位置がズレることがあり
 
 補正は**スムーズに**適用されます（急な瞬間移動はしません）。
 
-> 本プラグインは **KK_HCharaAdjustment**（作者: deathweasel）の**拡張アドオン**です。位置調整ガイド（女の子・男の表示）は派生元が提供し、本プラグインが自動位置合わせと手動調整の保存・再適用を担います。ライセンスは後述の [License](#license) を参照。
+さらにオプションの **KK_HCharaAdjustmentEx.VR**（別 DLL）を入れると、VR の H シーンで右コントローラーによる**位置の微調整**ができます（旧 KK_HCharaPosVR を統合したものです）。VR の微調整は意図的に**一時的**です — 一人称で合わせた位置は三人称ではズレて見えることが多いため、保存されず体位変更でリセットされます。
+
+> 本プラグインは **KK_HCharaAdjustment**（作者: DeathWeasel1337）の**拡張アドオン**です。位置調整ガイド（女の子・男の表示）は派生元が提供し、本プラグインが自動位置合わせと手動調整の保存・再適用を担います。ライセンスは後述の [License](#license) を参照。
 
 ---
 
@@ -24,11 +26,12 @@ H シーンでは体位によってキャラの位置がズレることがあり
 | 項目 | 要件 |
 |---|---|
 | ゲーム | Koikatsu（HF Patch） |
-| 実行ファイル | `Koikatu.exe`（フル）/ `KoikatuVR.exe`（適用のみ） |
+| 実行ファイル | `Koikatu.exe`（フル）/ `KoikatuVR.exe`（適用＋VR微調整） |
 | フレームワーク | BepInEx 5.4.x |
 | **必須依存** | **KK_HCharaAdjustment**（ガイドを提供） |
+| オプション（VR） | `KK_HCharaAdjustmentEx.VR.dll` — VR コントローラー微調整。Meta Quest 2（Oculus Link / Air Link）で動作確認済み・他ヘッドセットは未確認 |
 
-> KK_HCharaAdjustment がガイド（女1=`O` / 女2=`P` / 男=`I`）を提供します。手動編集（保存）は非VRビルドでのみ動作します（VR は適用専用）。
+> KK_HCharaAdjustment がガイド（女1=`O` / 女2=`P` / 男=`I`）を提供します。手動編集（保存）は非VRビルドでのみ動作します。VR では保存済み/自動の補正が適用され、オプションの VR DLL でコントローラーによる一時微調整ができます。
 
 ---
 
@@ -37,7 +40,10 @@ H シーンでは体位によってキャラの位置がズレることがあり
 1. **KK_HCharaAdjustment**（派生元）を導入済みであることを確認。
 2. [Releases](../../releases) から最新の `KK_HCharaAdjustmentEx.dll` をダウンロード。
 3. `BepInEx/plugins/` フォルダに配置。
-4. ゲームを起動。
+4. **VR で微調整を使う場合:** `KK_HCharaAdjustmentEx.VR.dll` も `BepInEx/plugins/` に配置（`KoikatuVR.exe` でのみロードされます）。
+5. ゲームを起動。
+
+> 以前 **KK_HCharaPosVR** を使っていた場合は、その DLL を削除してください。`KK_HCharaAdjustmentEx.VR.dll` に統合されており、両方入っているとキャラ位置を取り合います。
 
 ---
 
@@ -58,6 +64,18 @@ H シーンでは体位によってキャラの位置がズレることがあり
 - 保存した調整は **キャラの組み合わせ×体位ごと**に保存され、その体位では自動補正より優先されます。
 - 保存は非VRビルドが必要です。
 
+### VR 微調整（オプション `KK_HCharaAdjustmentEx.VR.dll`）
+
+VR の H シーンで使えます。操作は**右コントローラーの A ボタン**のみです。
+
+| 操作 | 動作 |
+|---|---|
+| A ボタンを**長押し**（0.2 秒以上） | 選択中の女の子がコントローラーに追従。離すと確定。 |
+| A ボタンを**素早く2回押す**（0.4 秒以内） | Female1 ↔ Female2 の切り替え（切替時に振動で通知。Female2 がいないシーンでは無視）。 |
+
+- 微調整は自動補正・保存済み位置の**上に加算**されます。
+- **意図的に一時的**です: 保存されず、体位変更・場所（スポット）移動・シーン終了でリセットされます。選択対象は H シーンごとに Female1 に戻ります。
+
 ---
 
 ## 設定
@@ -67,7 +85,10 @@ BepInEx の **ConfigurationManager**（既定 `F1`）で開けます。
 | セクション | 項目 | 既定値 | 説明 |
 |---|---|---|---|
 | General | Enabled | ON | プラグイン全機能の有効/無効（OFF=バニラ） |
-| Auto Adjust | Enabled | ON | 自動の位置合わせ |
+| Auto Adjust | Enabled | ON | 自動の位置合わせ（デスクトップ/非VR） |
+| Auto Adjust | Enabled (VR) | ON | VR での自動の位置合わせ |
+| Auto Adjust | Precise Sampling | ON | 隠し参照ボディの実測で自動補正を精密化（デスクトップ/非VR）。OFF=高速な近似計算のみ |
+| Auto Adjust | Precise Sampling (VR) | OFF | 同上の VR 版。参照ボディは VR でフレーム落ちの原因になり得るため既定 OFF（近似計算で代替） |
 | Auto Adjust | Shift Cap | OFF | 補正のかけすぎを抑える（浮き・離れの防止） |
 | Auto Adjust | Mouth Shift Scale | 0.8 | 口の位置合わせの強さ（0〜1・小さいほど控えめ） |
 | Manual Adjust | Buttons Show | ON | 画面の Save/Reset ボタンを表示 |
@@ -75,19 +96,30 @@ BepInEx の **ConfigurationManager**（既定 `F1`）で開けます。
 | Manual Adjust | Position Save | RCtrl+S | 手動調整を保存するキー |
 | Manual Adjust | Position Reset | RCtrl+RShift+S | 手動調整をリセットするキー |
 
+`KK_HCharaAdjustmentEx.VR` は独立した設定ファイルを持ちます。
+
+| セクション | 項目 | 既定値 | 説明 |
+|---|---|---|---|
+| General | Enabled | ON | VR コントローラー微調整の有効/無効（OFF=バニラ） |
+| Female 1 | Move Scale | 1.0 | Female1 の移動量の倍率 |
+| Female 2 | Move Scale | 1.0 | Female2 の移動量の倍率 |
+
 ---
 
 ## 注意点
 
 - 自動補正は男がバニラの範囲に収まる必要があります。
 - 自動補正は完全ではありません。特に奉仕では種類によりズレが発生する場合があります。その際は手動調整を行ってください。
+- **レズシーンでは自動補正は無効です。** 自動補正は男を基準に位置合わせする設計のため、女同士では基準がなく対象外です。手動調整（および VR 微調整）は使えます。
+- **3P は対応していますが確実ではありません。** 女の子2人とも自動補正の対象ですが、1対1ほど検証されておらず、行為していない側の子の補正が不自然になる可能性があります。おかしい場合は手動調整で対応してください。
 - 保存データは `BepInEx/config/` 内のテキストファイルにあり、手動で編集・削除も可能です（変更後はゲーム再起動で反映）。
+- VR 微調整: X ボタン（左コントローラー）は使用できません。Meta Quest 2 の X ボタンは SteamVR レガシー入力 API で押下を検出できないため、右コントローラーの A ボタンのみ対応です。
 
 ---
 
 ## License
 
-本プラグインは [KK_Plugins_CN](https://github.com/PopChicken/KK_Plugins_CN)（作者: PopChicken）に含まれる **KK_HCharaAdjustment** を派生元とする拡張実装です。
+本プラグインは [KK_Plugins](https://github.com/IllusionMods/KK_Plugins)（作者: DeathWeasel1337）に含まれる **KK_HCharaAdjustment** を派生元とする拡張実装です。
 
 派生元と同じく **GNU General Public License v3.0** の下で配布します。
 

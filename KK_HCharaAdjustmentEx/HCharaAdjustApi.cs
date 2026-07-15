@@ -11,10 +11,12 @@ namespace KK_HCharaAdjustmentEx
     /// 【ApiVersion 4】TryComputeAdjustment は本シーンと同じ排他優先順:
     ///   完全一致キーの手動保存（絶対デルタ・手動が大正義）＞ 自動補正（帯域シード）＞ ゼロ。
     /// 自動補正は解析シード（一次近似）のワンショット計算＝帯域内キャラは完全にゼロ。
+    /// 【ApiVersion 5】一時オフセット（AddTransientOffset 系）を追加。本シーンの継続適用の
+    ///   目標位置へ加算される非永続の微調整枠（KK_HCharaAdjustmentEx.VR が使用）。
     /// </summary>
     public static class HCharaAdjustApi
     {
-        public const int ApiVersion = 4;
+        public const int ApiVersion = 5;
 
         private class Bones
         {
@@ -83,6 +85,25 @@ namespace KK_HCharaAdjustmentEx
             }
             return true;
         }
+
+        /// <summary>
+        /// 【ApiVersion 5】本シーン（H シーン中）のキャラに一時オフセットを加算する。
+        /// idx: 0=Female1 / 1=Female2 / 2=Male。worldDelta はワールド座標の差分。
+        /// 継続適用（毎 LateUpdate の位置強制）の目標位置へ加算されるため、呼び出し側は
+        /// transform を直接動かさないこと（綱引きになる）。
+        /// 保存されず、体位変更・スポット移動・H シーン終了で自動的にゼロへ戻る。
+        /// </summary>
+        public static void AddTransientOffset(int idx, Vector3 worldDelta)
+        {
+            if (!Plugin.IsEnabled) return;
+            HSceneHooks.AddTransientOffset(idx, worldDelta);
+        }
+
+        /// <summary>現在の一時オフセット（ワールド）。リセット済み・範囲外はゼロ。</summary>
+        public static Vector3 GetTransientOffset(int idx) => HSceneHooks.GetTransientOffset(idx);
+
+        /// <summary>全キャラの一時オフセットを即時ゼロへ戻す（呼び出し側プラグインの無効化時など）。</summary>
+        public static void ClearTransientOffsets() => HSceneHooks.ClearTransientOffsets();
 
         /// <summary>cf_n_height の実効スケール（キャラルートのスケールで正規化）。</summary>
         public static bool TryGetScale(ChaControl cha, out float scale)

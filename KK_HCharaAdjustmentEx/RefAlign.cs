@@ -57,8 +57,28 @@ namespace KK_HCharaAdjustmentEx
         private const float CapK     = 1.5f;      // 物理上限キャップ係数: |shift| ≤ 帯域からの距離 × CapK
 
         private static bool _hardFailed;           // 参照ボディ生成不能等（セッション中は機能停止）
-        internal static bool Enabled =>
-            Plugin.RefAlignEnabled != null && Plugin.RefAlignEnabled.Value && !_hardFailed;
+
+        // 非VR/VR は同一 cfg を共有するため、モード別の項目を IsVRMode で選択する
+        private static bool EnabledConfig
+        {
+            get
+            {
+                var e = Plugin.IsVRMode ? Plugin.RefAlignEnabledVR : Plugin.RefAlignEnabled;
+                return e != null && e.Value;
+            }
+        }
+        internal static bool Enabled => EnabledConfig && !_hardFailed;
+
+        // 同時採取（精密測定）の有効/無効。OFF=解析シード（一次近似）のみ＝参照ボディを生成しない。
+        // VR 既定 OFF: 参照ボディのロードヒッチ＋AlwaysAnimate 常駐がフレーム落ちの原因になるため。
+        private static bool SamplingEnabled
+        {
+            get
+            {
+                var e = Plugin.IsVRMode ? Plugin.PreciseSamplingVR : Plugin.PreciseSampling;
+                return e != null ? e.Value : !Plugin.IsVRMode;   // 未初期化時は既定値と同じ挙動
+            }
+        }
 
         // ── 採取状態（同時採取方式: shift はセッション内 _shiftCache に直接確定） ──
         private static readonly HashSet<string> _sampling = new HashSet<string>();   // 採取中の measKey
@@ -224,7 +244,9 @@ namespace KK_HCharaAdjustmentEx
 
             // 同時採取を起動（参照と実キャラを同じフレーム群で測定し shift を直接確定）。
             // 完了までは暫定シフト（初回）または旧シフトを維持。
-            StartSampling(measKey, coup, bound, cha, hash, idx);
+            // Precise Sampling OFF（VR 既定）ならシードのまま＝参照ボディを一切生成しない。
+            if (SamplingEnabled)
+                StartSampling(measKey, coup, bound, cha, hash, idx);
             return applied;
         }
 
@@ -422,7 +444,7 @@ namespace KK_HCharaAdjustmentEx
         internal static Vector3 ComputeExternalShiftWorld(
             ChaControl female, ChaControl? male, HSceneProc.AnimationListInfo info)
         {
-            if (Plugin.RefAlignEnabled == null || !Plugin.RefAlignEnabled.Value) return Vector3.zero;
+            if (!EnabledConfig) return Vector3.zero;   // モード別トグル（_hardFailed はシード計算に無関係なので見ない）
             if (female == null || info == null) return Vector3.zero;
 
             int coup = CouplingForInfo(info, female);
