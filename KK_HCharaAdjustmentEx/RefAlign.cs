@@ -307,8 +307,14 @@ namespace KK_HCharaAdjustmentEx
                     }
                     return -1;
                 }
+                case 3:                   // masturbation（自慰）: 椅子系（座り）のみ対象。
+                {                         //   座面への沈み込みを尻で補正（SEX 椅子バック・愛撫椅子と同理屈）。
+                                          //   立ち/その場（接触点なし）・机角オナニー（要検証・保留）は対象外。
+                    if (info!.useChair > 0) return CoupSiri;
+                    return -1;
+                }
                 default:
-                    return -1;            // 自慰等は対象外
+                    return -1;            // 覗き・レズ等は対象外
             }
         }
 
