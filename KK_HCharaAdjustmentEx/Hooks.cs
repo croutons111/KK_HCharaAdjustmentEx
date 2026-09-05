@@ -194,7 +194,6 @@ namespace KK_HCharaAdjustmentEx
             _lastHSceneInstance      = null;
             ResetSceneState();
             RefAlign.OnSceneEnd();   // 参照ボディ破棄（シーン所属のため）
-            LesDiag.OnSceneEnd();    // レズ診断の蓄積を破棄（次のシーンで測り直す）
         }
 
         // VR: Hシーン開始（CurrentFlags 設定 + バニラ取り直しマーク）

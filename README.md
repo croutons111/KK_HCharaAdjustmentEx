@@ -108,10 +108,21 @@ Open the BepInEx **ConfigurationManager** (default `F1`).
 
 ## Notes
 
-- Automatic adjustment assumes the male's body size is within the normal (vanilla) range.
+### What gets adjusted
+
+Automatic adjustment applies to poses where **the girl has a fixed point of contact** with her partner or with furniture.
+
+| | Poses |
+|---|---|
+| **Adjusted** | Penetration (normal and anal); service acts (mouth, breasts, hands, feet); caress on furniture (desk, chair); seated masturbation (chair, desk corner, hurdle); lesbian cunnilingus and mutual touching; threesomes (both girls) |
+| **Left as vanilla** | Standing and shower masturbation; caress on the floor, standing, or against a wall; lesbian grinding |
+
+The second group is left alone **on purpose**. There is no fixed contact point to align to, the game already handles these correctly, and adjusting them would only make things worse.
+
+### Other
+
+- Only the **girls** are adjusted. The male is treated as the fixed reference and is never moved, so a male whose body size is outside the normal range is not compensated for.
 - Automatic adjustment is not perfect — some service acts (oral, handjob, etc.) in particular may still be misaligned. Use manual adjustment in those cases.
-- **Lesbian scenes are not auto-adjusted.** The automatic adjustment aligns to the male as its reference, so girl-on-girl scenes have no reference to align to. Manual adjustment (and the VR fine-tuning) still works there.
-- **3P scenes are supported but less reliable.** Both girls are auto-adjusted, but 3P has not been verified as thoroughly as 1-on-1 — the girl who is not currently engaged may be adjusted less sensibly. Use manual adjustment if something looks off.
 - Saved data is a plain text file under `BepInEx/config/` and can be edited or deleted by hand (restart the game to reflect changes).
 - VR fine-tuning: the X button (left controller) is not usable — on Meta Quest 2 its press cannot be detected through the SteamVR legacy input API, so only the right controller's A button is supported.
 

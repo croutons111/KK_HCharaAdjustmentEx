@@ -111,7 +111,11 @@ namespace KK_HCharaAdjustmentEx
                     // 手動保存なし → 自動補正（帯域外の女性のみ・男は基準側でゼロ）
                     off1 = RefAlign.ComputeExternalShiftWorld(female1, male, info);
                     if (female2 != null)
+                    {
                         off2 = RefAlign.ComputeExternalShiftWorld(female2, male, info, femaleIdx: 1);
+                        // 腰揃え体位は共通分（二人まとめて持ち上げる成分）を落とす。本シーンと同じ扱い。
+                        RefAlign.RemoveCommonShift(info, ref off1, ref off2);
+                    }
                 }
             }
             catch (System.Exception e)

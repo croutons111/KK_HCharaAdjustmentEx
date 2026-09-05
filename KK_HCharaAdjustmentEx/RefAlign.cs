@@ -31,9 +31,9 @@ namespace KK_HCharaAdjustmentEx
     internal static class RefAlign
     {
         // 結合点の種別（参照キャッシュのキーに含む）
-        internal const int CoupKokan = 0;   // 挿入: a_n_kokan
-        internal const int CoupHand  = 1;   // 奉仕 kindHoushi=0: cf_j_hand_L/R 中点
-        internal const int CoupMouth = 2;   // 奉仕 kindHoushi=1: a_n_mouth（参照ベース・持ち上げは Mouth Shift Scale で調整）
+        private const int CoupKokan = 0;   // 挿入: a_n_kokan
+        private const int CoupHand  = 1;   // 奉仕 kindHoushi=0: cf_j_hand_L/R 中点
+        private const int CoupMouth = 2;   // 奉仕 kindHoushi=1: a_n_mouth（参照ベース・持ち上げは Mouth Shift Scale で調整）
         private const int CoupBust  = 3;   // 奉仕 kindHoushi=2: cf_d_bust00
         private const int CoupSiri  = 4;   // 愛撫（椅子）: cf_j_siri_L/R 中点（座り接触）
         private const int CoupFoot  = 5;   // 奉仕（足コキ系）: cf_j_foot_L/R 中点
@@ -55,9 +55,6 @@ namespace KK_HCharaAdjustmentEx
         private const int   MeasureMinSamples   = 15;    // 同時採取: 有効サンプルの下限（不足なら見送り→再訪で再試行）
         private const float MaxShift = 0.3f;      // 安全上限
         private const float CapK     = 1.5f;      // 物理上限キャップ係数: |shift| ≤ 帯域からの距離 × CapK
-
-        // 帯域内（正規スライダーで作れる体＝完全無介入の範囲）か。LesDiag と定義を共有する。
-        internal static bool InBand(float s) => s >= S_LO - BandEps && s <= S_HI + BandEps;
 
         private static bool _hardFailed;           // 参照ボディ生成不能等（セッション中は機能停止）
 
@@ -141,6 +138,54 @@ namespace KK_HCharaAdjustmentEx
         // Hooks から毎フレーム呼ばれる。適用すべきワールドシフト（comp 相当枠）を返す。
         // 正規範囲内のキャラ・対象外モードはゼロ。測定中・参照未確定は直前の確定シフトを維持。
         internal static Vector3 GetShift(HFlag flags, ChaControl cha, int idx, string key)
+        {
+            Vector3 raw = GetShiftRaw(flags, cha, idx, key);
+            if (idx > 1) return raw;
+
+            // 腰揃え体位は「二人の腰の高さを揃える」ことだけが目的なので、
+            // 二人まとめて持ち上げる成分（共通分）は床から浮かせるだけの害でしかない。
+            // 実証: 互い弄りの外0.606×外0.688 で両者に +0.209 / +0.135 が乗り【二人とも浮いた】
+            //（腰の揃い自体は dy=+0.012 で完璧だった＝相対は正しく絶対が余計）。2026-09-05 ユーザー報告。
+            // 共通分を引くと、低い側だけが差分ぶん持ち上がり、もう一方は床に残る。
+            // 片方が帯域内ならその子のシフトは 0＝共通分も 0 なので、従来どおり帯域外の子だけが上がる。
+            if (_rawKey != key) { _rawKey = key; _rawShift[0] = _rawShift[1] = Vector3.zero; }
+            _rawShift[idx] = raw;
+            if (!IsHipAlignPose(flags != null ? flags.nowAnimationInfo : null)) return raw;
+            return raw - CommonPart(_rawShift[0], _rawShift[1]);
+        }
+
+        private static readonly Vector3[] _rawShift = new Vector3[2];
+        private static string _rawKey = "";
+
+        // 二人のシフトの「共通分」（軸ごと。符号が同じときだけ絶対値の小さい方＝重なっている分）。
+        private static Vector3 CommonPart(Vector3 a, Vector3 b) =>
+            new Vector3(CommonAxis(a.x, b.x), CommonAxis(a.y, b.y), CommonAxis(a.z, b.z));
+
+        private static float CommonAxis(float a, float b)
+        {
+            if (a > 0f && b > 0f) return Mathf.Min(a, b);
+            if (a < 0f && b < 0f) return Mathf.Max(a, b);
+            return 0f;   // 符号違い or 片方ゼロ＝共通分なし（＝相対ズレがそのまま補正量）
+        }
+
+        // 外部API用: 腰揃え体位なら二人のシフトから共通分を落とす（本シーンの GetShift と同じ扱い）。
+        internal static void RemoveCommonShift(HSceneProc.AnimationListInfo? info, ref Vector3 s0, ref Vector3 s1)
+        {
+            if (!IsHipAlignPose(info)) return;
+            Vector3 common = CommonPart(s0, s1);
+            s0 -= common;
+            s1 -= common;
+        }
+
+        // 腰揃え体位か（互い弄り等・二人の腰の高さを揃えるのが目的の体位）
+        private static bool IsHipAlignPose(HSceneProc.AnimationListInfo? info)
+        {
+            if (info == null) return false;
+            try { return _lesHipAlignFiles.Contains(info.paramFemale?.path?.file ?? ""); }
+            catch { return false; }
+        }
+
+        private static Vector3 GetShiftRaw(HFlag flags, ChaControl cha, int idx, string key)
         {
             if (idx == 2 /*MALE*/) return Vector3.zero;
             int coup = CouplingFor(flags, cha, idx);
@@ -290,6 +335,14 @@ namespace KK_HCharaAdjustmentEx
         private static readonly HashSet<string> _lesCunniFiles =
             new HashSet<string> { "khr_f_01_00", "khr_f_03_00" };   // 椅子クンニ / 寝クンニ
 
+        // レズのうち「二人の腰の高さが揃っているべき」体位（対称＝役割なし）。
+        // 互い弄りは baseline（帯域内どうし）の kokan↔kokan が dy=+0.034＝ほぼ水平なのに、
+        // 帯域外が絡むと dy=+0.238 / -0.182＝腰が 18〜24cm ずれる（2026-09-05 実測）。
+        // 両者に CoupKokan を掛けて各自が標準体の腰高へ寄れば、結果として腰が揃う
+        //（相手を見るクロス項は要らない）。★床座りの体位なので小柄な子は尻が浮く方向に動く。
+        private static readonly HashSet<string> _lesHipAlignFiles =
+            new HashSet<string> { "khr_f_02_00" };                  // 互い弄り
+
         private static readonly HashSet<string> _matSiriCtrls  = new HashSet<string> { "kht_f_01" };            // 座り: 椅子/トイレ
         private static readonly HashSet<string> _matKokanCtrls = new HashSet<string> { "kht_f_00", "kht_f_03" }; // 股間擦り付け: 机角/ハードル
 
@@ -348,13 +401,19 @@ namespace KK_HCharaAdjustmentEx
                                           //     ＝補正余地あり。悪化の主因は「受け手が帯域外」（dy が最大 -0.235）。
                     string file = "";
                     try { file = info!.paramFemale?.path?.file ?? ""; } catch { }
-                    if (!_lesCunniFiles.Contains(file)) return -1;   // 具合わせ・互い弄り・未知のMOD体位
 
-                    // 役割はスロット固定＝lstHeroine[0]=受け手 / [1]=舐め手。
-                    // 4パターン全てで F2mouth↔F1kokan が最小（対の F1mouth↔F2kokan は 0.78〜0.99）＝
-                    // 幾何判定は不要。★SetMapObject が椅子を lstFemale[0] に生成する事実とも一致する。
-                    if (femaleIdx == 1) return CoupMouth;            // 舐め手: 口
-                    return info!.useChair > 0 ? CoupSiri : CoupKokan; // 受け手: 椅子=座面 / 寝=股間
+                    if (_lesCunniFiles.Contains(file))
+                    {
+                        // 役割はスロット固定＝lstHeroine[0]=受け手 / [1]=舐め手。
+                        // 4パターン全てで F2mouth↔F1kokan が最小（対の F1mouth↔F2kokan は 0.78〜0.99）＝
+                        // 幾何判定は不要。★SetMapObject が椅子を lstFemale[0] に生成する事実とも一致する。
+                        if (femaleIdx == 1) return CoupMouth;            // 舐め手: 口
+                        return info!.useChair > 0 ? CoupSiri : CoupKokan; // 受け手: 椅子=座面 / 寝=股間
+                    }
+                    // 互い弄り: 対称（役割なし）＝両者とも腰（股間）を標準体へ寄せて高さを揃える。
+                    if (_lesHipAlignFiles.Contains(file)) return CoupKokan;
+
+                    return -1;   // 具合わせ（相互 height1 で足りている）・未知のMOD体位
                 }
                 default:
                     return -1;            // 覗き等は対象外
@@ -391,7 +450,7 @@ namespace KK_HCharaAdjustmentEx
             coup == CoupFoot ? "foot" : "siri";
 
         // ── 結合点のワールド座標（実キャラ・参照ボディ共用） ──
-        internal static Vector3? CouplingPos(ChaControl cha, int coup)
+        private static Vector3? CouplingPos(ChaControl cha, int coup)
         {
             switch (coup)
             {
@@ -452,7 +511,7 @@ namespace KK_HCharaAdjustmentEx
         }
 
         // cf_n_height を毎回 FindLoop して直接実測（キャッシュ陳腐化の影響を受けない）
-        internal static float MeasureScaleDirect(ChaControl cha)
+        private static float MeasureScaleDirect(ChaControl cha)
         {
             var body = cha != null ? cha.objBodyBone : null;
             var h = body != null ? body.transform.FindLoop("cf_n_height") : null;
@@ -558,8 +617,14 @@ namespace KK_HCharaAdjustmentEx
                 }
                 catch (System.Exception e)
                 {
-                    Plugin.Logger.LogWarning(
-                        "[HCharaAdjustmentEx] 同時採取で例外 → この採取を中断（要調査） " + measKey + ": " + e.Message);
+                    // 型とスタックまで出す。e.Message だけだと空のことがあり原因を特定できない
+                    //（実測 2026-09-05: メッセージ空の警告が1件出たが型も発生箇所も分からなかった）。
+                    // あわせて「破棄済みかどうか」を Unity の == で判定して添える。採取中に H シーンが
+                    // 切り替わると参照ボディも実キャラも破棄され、コルーチンだけが1フレーム生き残る
+                    // ＝この経路の例外はまずシーン遷移レース。それをログだけで断定できるようにする。
+                    Plugin.Logger.LogWarning(string.Format(
+                        "[HCharaAdjustmentEx] 同時採取で例外 → この採取を中断（要調査） {0}: {1} refCha破棄={2} 実キャラ破棄={3}" + System.Environment.NewLine + "{4}",
+                        measKey, e.GetType().FullName, _refCha == null, realF == null, e));
                     break;
                 }
                 yield return cur;
