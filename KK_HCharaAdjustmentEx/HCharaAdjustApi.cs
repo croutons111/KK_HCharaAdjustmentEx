@@ -13,10 +13,16 @@ namespace KK_HCharaAdjustmentEx
     /// 自動補正は解析シード（一次近似）のワンショット計算＝帯域内キャラは完全にゼロ。
     /// 【ApiVersion 5】一時オフセット（AddTransientOffset 系）を追加。本シーンの継続適用の
     ///   目標位置へ加算される非永続の微調整枠（KK_HCharaAdjustmentEx.VR が使用）。
+    /// 【ApiVersion 6】3P（女2人）用の TryComputeAdjustment オーバーロードを追加。
+    ///   2人版は女2に null を渡すためキーの女2が "none" になり、本シーンの 3P で保存した
+    ///   調整とは別枠になっていた（保存側は最初から f1/f2/male の3スロットを持っている）。
     /// </summary>
     public static class HCharaAdjustApi
     {
-        public const int ApiVersion = 5;
+        public const int ApiVersion = 6;
+
+        // AdjustmentStore.Entry / Hooks.GetAbs のキャラ添字
+        private const int IdxF1 = 0, IdxF2 = 1, IdxMale = 2;
 
         private class Bones
         {
@@ -49,39 +55,72 @@ namespace KK_HCharaAdjustmentEx
             ChaControl female, ChaControl male, int mode,
             HSceneProc.AnimationListInfo info,
             out Vector3 femaleOffsetWorld, out Vector3 maleOffsetWorld)
+            => ComputeCore(female, null, male, info,
+                           out femaleOffsetWorld, out _, out maleOffsetWorld);
+
+        /// <summary>
+        /// 【ApiVersion 6】3P（女2人）版。female1/female2 は本体 H シーンの lstHeroine[0]/[1]
+        /// （＝体位データの paramFemale / paramFemale1）に対応する順で渡すこと。順が逆だと
+        /// キーが本シーンで保存したものと一致せず、手動保存が流用されない。
+        /// 排他優先順・ワールド化・ゲートは 2 人版と同一。female2 に null を渡せば 2 人版と等価。
+        /// </summary>
+        public static bool TryComputeAdjustment(
+            ChaControl female1, ChaControl female2, ChaControl male, int mode,
+            HSceneProc.AnimationListInfo info,
+            out Vector3 female1OffsetWorld, out Vector3 female2OffsetWorld, out Vector3 maleOffsetWorld)
+            => ComputeCore(female1, female2, male, info,
+                           out female1OffsetWorld, out female2OffsetWorld, out maleOffsetWorld);
+
+        // 2人版・3人版の共通実体。female2 == null なら 2 人版と完全に同一の経路を通る
+        //（キーの女2は "none"・保存エントリの f2 は必ずゼロ・女2の自動補正は呼ばない）。
+        private static bool ComputeCore(
+            ChaControl female1, ChaControl? female2, ChaControl male,
+            HSceneProc.AnimationListInfo info,
+            out Vector3 off1, out Vector3 off2, out Vector3 offMale)
         {
-            femaleOffsetWorld = Vector3.zero;
-            maleOffsetWorld   = Vector3.zero;
-            if (!Plugin.IsEnabled || female == null) return false;
+            off1    = Vector3.zero;
+            off2    = Vector3.zero;
+            offMale = Vector3.zero;
+            if (!Plugin.IsEnabled || female1 == null) return false;
             if (info == null) return true;
             try
             {
-                string key  = HSceneHooks.BuildKeyFor(info, female, null, male);
-                var    src  = AdjustmentStore.GetEntry(key);
-                Vector3 absF = HSceneHooks.GetAbs(src, 0);
-                Vector3 absM = HSceneHooks.GetAbs(src, 2);
-                if (absF != Vector3.zero || absM != Vector3.zero)
+                string key   = HSceneHooks.BuildKeyFor(info, female1, female2, male);
+                var    src   = AdjustmentStore.GetEntry(key);
+                Vector3 abs1 = HSceneHooks.GetAbs(src, IdxF1);
+                Vector3 abs2 = female2 != null ? HSceneHooks.GetAbs(src, IdxF2) : Vector3.zero;
+                Vector3 absM = HSceneHooks.GetAbs(src, IdxMale);
+                if (abs1 != Vector3.zero || abs2 != Vector3.zero || absM != Vector3.zero)
                 {
                     // 手動保存＝保存した見た目そのものを再現（自動補正は参照しない）
-                    femaleOffsetWorld = female.transform.rotation * absF;
+                    off1 = female1.transform.rotation * abs1;
+                    if (female2 != null && abs2 != Vector3.zero)
+                        off2 = female2.transform.rotation * abs2;
                     if (male != null && absM != Vector3.zero)
-                        maleOffsetWorld = male.transform.rotation * absM;
+                        offMale = male.transform.rotation * absM;
+                    // 2人版のログ行は従来と1文字も変えない（女2がいるときだけ absF2 を足す）
                     Plugin.Logger.LogInfo(string.Format(
                         "[HCharaAdjustmentEx] API手動適用(完全一致・絶対デルタ): {0} absF=({1:F3},{2:F3},{3:F3}) absM=({4:F3},{5:F3},{6:F3})",
-                        src!.key, absF.x, absF.y, absF.z, absM.x, absM.y, absM.z));
+                        src!.key, abs1.x, abs1.y, abs1.z, absM.x, absM.y, absM.z) +
+                        (female2 != null
+                            ? string.Format(" absF2=({0:F3},{1:F3},{2:F3})", abs2.x, abs2.y, abs2.z)
+                            : ""));
                 }
                 else
                 {
                     // 手動保存なし → 自動補正（帯域外の女性のみ・男は基準側でゼロ）
-                    femaleOffsetWorld = RefAlign.ComputeExternalShiftWorld(female, male, info);
+                    off1 = RefAlign.ComputeExternalShiftWorld(female1, male, info);
+                    if (female2 != null)
+                        off2 = RefAlign.ComputeExternalShiftWorld(female2, male, info);
                 }
             }
             catch (System.Exception e)
             {
                 Plugin.Logger.LogWarning(
                     "[HCharaAdjustmentEx] API補正解決失敗 → 補正なしで続行（要調査）: " + e.Message);
-                femaleOffsetWorld = Vector3.zero;
-                maleOffsetWorld   = Vector3.zero;
+                off1    = Vector3.zero;
+                off2    = Vector3.zero;
+                offMale = Vector3.zero;
             }
             return true;
         }
