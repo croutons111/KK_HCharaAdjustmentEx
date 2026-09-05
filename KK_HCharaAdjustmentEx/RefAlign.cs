@@ -31,9 +31,9 @@ namespace KK_HCharaAdjustmentEx
     internal static class RefAlign
     {
         // 結合点の種別（参照キャッシュのキーに含む）
-        private const int CoupKokan = 0;   // 挿入: a_n_kokan
-        private const int CoupHand  = 1;   // 奉仕 kindHoushi=0: cf_j_hand_L/R 中点
-        private const int CoupMouth = 2;   // 奉仕 kindHoushi=1: a_n_mouth（参照ベース・持ち上げは Mouth Shift Scale で調整）
+        internal const int CoupKokan = 0;   // 挿入: a_n_kokan
+        internal const int CoupHand  = 1;   // 奉仕 kindHoushi=0: cf_j_hand_L/R 中点
+        internal const int CoupMouth = 2;   // 奉仕 kindHoushi=1: a_n_mouth（参照ベース・持ち上げは Mouth Shift Scale で調整）
         private const int CoupBust  = 3;   // 奉仕 kindHoushi=2: cf_d_bust00
         private const int CoupSiri  = 4;   // 愛撫（椅子）: cf_j_siri_L/R 中点（座り接触）
         private const int CoupFoot  = 5;   // 奉仕（足コキ系）: cf_j_foot_L/R 中点
@@ -55,6 +55,9 @@ namespace KK_HCharaAdjustmentEx
         private const int   MeasureMinSamples   = 15;    // 同時採取: 有効サンプルの下限（不足なら見送り→再訪で再試行）
         private const float MaxShift = 0.3f;      // 安全上限
         private const float CapK     = 1.5f;      // 物理上限キャップ係数: |shift| ≤ 帯域からの距離 × CapK
+
+        // 帯域内（正規スライダーで作れる体＝完全無介入の範囲）か。LesDiag と定義を共有する。
+        internal static bool InBand(float s) => s >= S_LO - BandEps && s <= S_HI + BandEps;
 
         private static bool _hardFailed;           // 参照ボディ生成不能等（セッション中は機能停止）
 
@@ -140,7 +143,7 @@ namespace KK_HCharaAdjustmentEx
         internal static Vector3 GetShift(HFlag flags, ChaControl cha, int idx, string key)
         {
             if (idx == 2 /*MALE*/) return Vector3.zero;
-            int coup = CouplingFor(flags, cha);
+            int coup = CouplingFor(flags, cha, idx);
             if (coup < 0) { ResetIdx(idx); return Vector3.zero; }   // 対象外モード（愛撫の非家具体位等）
 
             if (_key[idx] != key)
@@ -281,15 +284,22 @@ namespace KK_HCharaAdjustmentEx
         // useChair/useDesk が 0 の体位（トイレ=kht_f_01・ハードル=kht_f_03）は
         // 家具を生成せずマップ固定の造作物を使うため info のフラグでは判別できない。
         // 該当を見つけたらここに追加する。
+        // レズのクンニ系体位（info.paramFemale.path.file＝体位そのものの名前で判定＝両女性で共通）。
+        // レズ4体位のうち補正対象はここだけ。具合わせ(khr_f_00_00)・互い弄り(khr_f_02_00)は
+        // 相互 height1 が効いており帯域外でも結合が崩れない＝無介入が正解（2026-09-05 実測）。
+        private static readonly HashSet<string> _lesCunniFiles =
+            new HashSet<string> { "khr_f_01_00", "khr_f_03_00" };   // 椅子クンニ / 寝クンニ
+
         private static readonly HashSet<string> _matSiriCtrls  = new HashSet<string> { "kht_f_01" };            // 座り: 椅子/トイレ
         private static readonly HashSet<string> _matKokanCtrls = new HashSet<string> { "kht_f_00", "kht_f_03" }; // 股間擦り付け: 机角/ハードル
 
         // 対象モードの結合点種別（-1=対象外）
-        private static int CouplingFor(HFlag flags, ChaControl cha)
-            => CouplingForInfo(flags.nowAnimationInfo, cha);
+        private static int CouplingFor(HFlag flags, ChaControl cha, int femaleIdx)
+            => CouplingForInfo(flags.nowAnimationInfo, cha, femaleIdx);
 
-        // info 直受け版（外部API＝HSceneProc 外のペアと共用。本シーン経路と同一ロジック）
-        private static int CouplingForInfo(HSceneProc.AnimationListInfo? info, ChaControl cha)
+        // info 直受け版（外部API＝HSceneProc 外のペアと共用。本シーン経路と同一ロジック）。
+        // femaleIdx: 0=女1（lstHeroine[0]）/ 1=女2（lstHeroine[1]）。レズの役割判定にのみ使う。
+        private static int CouplingForInfo(HSceneProc.AnimationListInfo? info, ChaControl cha, int femaleIdx)
         {
             int mode = info != null ? (int)info.mode : -1;
             switch (mode)
@@ -329,8 +339,25 @@ namespace KK_HCharaAdjustmentEx
                     }
                     return -1;            // 立ち/シャワー＝外部接触点なし＝バニラが正解
                 }
+                case 5:                   // lesbian（レズ）: クンニ系のみ対象。
+                {                         //   2026-09-05 実測（4パターン×3体位×各7ステート）で確定:
+                                          //   ・具合わせ/互い弄り = 帯域外でも結合点の距離が増えない
+                                          //     （具合わせ kokan↔kokan: 内×内 0.043 → 外×外 0.035）
+                                          //     ＝相互 height1（Game_HLes.cs:128-136）が効いている＝無介入が正解。
+                                          //   ・椅子クンニ = 舐め手の口↔受け手の股間が 0.135 → 0.216〜0.289（1.6〜2.1倍）
+                                          //     ＝補正余地あり。悪化の主因は「受け手が帯域外」（dy が最大 -0.235）。
+                    string file = "";
+                    try { file = info!.paramFemale?.path?.file ?? ""; } catch { }
+                    if (!_lesCunniFiles.Contains(file)) return -1;   // 具合わせ・互い弄り・未知のMOD体位
+
+                    // 役割はスロット固定＝lstHeroine[0]=受け手 / [1]=舐め手。
+                    // 4パターン全てで F2mouth↔F1kokan が最小（対の F1mouth↔F2kokan は 0.78〜0.99）＝
+                    // 幾何判定は不要。★SetMapObject が椅子を lstFemale[0] に生成する事実とも一致する。
+                    if (femaleIdx == 1) return CoupMouth;            // 舐め手: 口
+                    return info!.useChair > 0 ? CoupSiri : CoupKokan; // 受け手: 椅子=座面 / 寝=股間
+                }
                 default:
-                    return -1;            // 覗き・レズ等は対象外
+                    return -1;            // 覗き等は対象外
             }
         }
 
@@ -364,7 +391,7 @@ namespace KK_HCharaAdjustmentEx
             coup == CoupFoot ? "foot" : "siri";
 
         // ── 結合点のワールド座標（実キャラ・参照ボディ共用） ──
-        private static Vector3? CouplingPos(ChaControl cha, int coup)
+        internal static Vector3? CouplingPos(ChaControl cha, int coup)
         {
             switch (coup)
             {
@@ -425,7 +452,7 @@ namespace KK_HCharaAdjustmentEx
         }
 
         // cf_n_height を毎回 FindLoop して直接実測（キャッシュ陳腐化の影響を受けない）
-        private static float MeasureScaleDirect(ChaControl cha)
+        internal static float MeasureScaleDirect(ChaControl cha)
         {
             var body = cha != null ? cha.objBodyBone : null;
             var h = body != null ? body.transform.FindLoop("cf_n_height") : null;
@@ -464,12 +491,12 @@ namespace KK_HCharaAdjustmentEx
         // 前提のため外部ペアには使わず、解析シード（一次近似）のみ返す。
         // 帯域内（正規スライダー範囲）のキャラは完全にゼロ＝無介入（本シーンと同じ）。
         internal static Vector3 ComputeExternalShiftWorld(
-            ChaControl female, ChaControl? male, HSceneProc.AnimationListInfo info)
+            ChaControl female, ChaControl? male, HSceneProc.AnimationListInfo info, int femaleIdx = 0)
         {
             if (!EnabledConfig) return Vector3.zero;   // モード別トグル（_hardFailed はシード計算に無関係なので見ない）
             if (female == null || info == null) return Vector3.zero;
 
-            int coup = CouplingForInfo(info, female);
+            int coup = CouplingForInfo(info, female, femaleIdx);
             if (coup < 0) return Vector3.zero;                 // 対象外モード（床・立ち・壁の愛撫等）
             if (coup == CoupAuto)
             {

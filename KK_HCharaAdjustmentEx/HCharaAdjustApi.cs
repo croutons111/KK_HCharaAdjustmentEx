@@ -111,7 +111,7 @@ namespace KK_HCharaAdjustmentEx
                     // 手動保存なし → 自動補正（帯域外の女性のみ・男は基準側でゼロ）
                     off1 = RefAlign.ComputeExternalShiftWorld(female1, male, info);
                     if (female2 != null)
-                        off2 = RefAlign.ComputeExternalShiftWorld(female2, male, info);
+                        off2 = RefAlign.ComputeExternalShiftWorld(female2, male, info, femaleIdx: 1);
                 }
             }
             catch (System.Exception e)

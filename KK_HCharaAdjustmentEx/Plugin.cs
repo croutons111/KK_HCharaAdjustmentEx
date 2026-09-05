@@ -13,7 +13,7 @@ namespace KK_HCharaAdjustmentEx
     {
         public const string PluginGuid    = "KK_HCharaAdjustmentEx";
         public const string PluginName    = "KK_HCharaAdjustmentEx";
-        public const string PluginVersion = "1.17.0";
+        public const string PluginVersion = "1.19.0";
 
         internal static new ManualLogSource Logger = null!;
         internal static Plugin Instance = null!;   // RefAlign のコルーチンホスト
@@ -36,6 +36,8 @@ namespace KK_HCharaAdjustmentEx
         internal static ConfigEntry<bool>? AutoSaveOnPoseChange;
         internal static ConfigEntry<KeyboardShortcut>? SaveKey;
         internal static ConfigEntry<KeyboardShortcut>? ResetKey;
+
+        internal static ConfigEntry<bool>? LesbianDiagLog;   // レズ結合点の診断ログ（計測のみ・位置は動かさない）
 
         // 保存通知
         private static string _saveMessage      = "";
@@ -86,6 +88,11 @@ namespace KK_HCharaAdjustmentEx
             ResetKey = Config.Bind("Manual Adjust", "Position Reset",
                 new KeyboardShortcut(KeyCode.S, KeyCode.RightControl, KeyCode.RightShift),
                 "Key to reset the manual adjustment (back to auto/vanilla).");
+
+            LesbianDiagLog = Config.Bind("Debug", "Lesbian Coupling Log", false,
+                "Log how far apart the two girls' contact points are in lesbian scenes " +
+                "(measurement only - nothing is moved). Used to decide whether lesbian " +
+                "scenes need auto adjustment at all. Logged once per pose and animation state.");
 
             AdjustmentStore.Initialize(Paths.ConfigPath);
 
@@ -138,6 +145,7 @@ namespace KK_HCharaAdjustmentEx
             // コルーチン（Update 相）で読むと前フレームの IK 適用後の姿勢になり、IK で世界固定される
             // 結合点（椅子に着く手等）が体格と無関係な値になって比較が壊れる（実測 2026-07-12）。
             RefAlign.HookMeasureTick();
+            LesDiag.Tick();
         }
 
         // 手動保存/リセット ホットキー
