@@ -276,6 +276,14 @@ namespace KK_HCharaAdjustmentEx
         // 例: kha_f_04=椅子バック愛撫（ユーザー実機確認 2026-07-10）。該当を見つけたらここに追加する。
         private static readonly HashSet<string> _chairHandsCtrls = new HashSet<string> { "kha_f_04" };
 
+        // 自慰（masturbation）の結合点をコントローラ名で判定する。実アニメは4種しかなく
+        //（kht_f_00=角 / kht_f_01=座り / kht_f_02=立ち / kht_f_03=ハードル）、
+        // useChair/useDesk が 0 の体位（トイレ=kht_f_01・ハードル=kht_f_03）は
+        // 家具を生成せずマップ固定の造作物を使うため info のフラグでは判別できない。
+        // 該当を見つけたらここに追加する。
+        private static readonly HashSet<string> _matSiriCtrls  = new HashSet<string> { "kht_f_01" };            // 座り: 椅子/トイレ
+        private static readonly HashSet<string> _matKokanCtrls = new HashSet<string> { "kht_f_00", "kht_f_03" }; // 股間擦り付け: 机角/ハードル
+
         // 対象モードの結合点種別（-1=対象外）
         private static int CouplingFor(HFlag flags, ChaControl cha)
             => CouplingForInfo(flags.nowAnimationInfo, cha);
@@ -307,11 +315,19 @@ namespace KK_HCharaAdjustmentEx
                     }
                     return -1;
                 }
-                case 3:                   // masturbation（自慰）: 椅子系（座り）のみ対象。
-                {                         //   座面への沈み込みを尻で補正（SEX 椅子バック・愛撫椅子と同理屈）。
-                                          //   立ち/その場（接触点なし）・机角オナニー（要検証・保留）は対象外。
-                    if (info!.useChair > 0) return CoupSiri;
-                    return -1;
+                case 3:                   // masturbation（自慰）: 外部に固定接触点がある体位のみ対象。
+                {                         //   座面/机角/バーへの沈み込みを補正（SEX 椅子バック・愛撫椅子と同理屈）。
+                    if (info!.useDesk  > 0) return CoupKokan;   // 角オナニー: 机角に股間（机は女1ルートに生成＝椅子と同機構）
+                    if (info!.useChair > 0) return CoupSiri;    // 椅子オナニー: 座面に尻
+                    // useChair/useDesk=0 ＝ SetMapObject が家具を生成しない＝マップ固定の造作物
+                    //（トイレ/ハードル）。実際に再生されるコントローラ名で座り/跨ぎ/立ちを判別する。
+                    var rcm = cha != null && cha.animBody != null ? cha.animBody.runtimeAnimatorController : null;
+                    if (rcm != null)
+                    {
+                        if (_matSiriCtrls.Contains(rcm.name))  return CoupSiri;    // トイレ（便座に座る）
+                        if (_matKokanCtrls.Contains(rcm.name)) return CoupKokan;   // ハードル（バーを跨ぐ）
+                    }
+                    return -1;            // 立ち/シャワー＝外部接触点なし＝バニラが正解
                 }
                 default:
                     return -1;            // 覗き・レズ等は対象外
