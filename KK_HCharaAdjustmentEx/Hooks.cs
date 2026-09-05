@@ -316,19 +316,34 @@ namespace KK_HCharaAdjustmentEx
                     ? RefAlign.GetShift(flags, cha, idx, key)
                     : Vector3.zero;
 
-                // 体位切替ごとに補正量を1回ログ（診断用）
+                // ── ガイド非表示中＝適用（瞬間移動を避けスムーズに寄せる） ──
+                Vector3 abs   = GetAbs(exact, idx);
+                Vector3 trans = _transientOffset[idx];
+
+                // 体位切替ごとに「何が効いているか」を1回ログ（診断用）。
+                // ★v1.20.4: 手動保存が効いているときの行を追加した。従来は refAlign の行しか無く、
+                //   しかもそれは**手動保存に上書きされても関係なく出る**ため、ログだけでは
+                //   「保存が読み戻されたのか自動補正なのか」を判別できなかった（外部API 経路には
+                //   `API手動適用(完全一致・絶対デルタ)` があるのに本シーンだけ穴が空いていた）。
+                //   排他（下の target と同じ優先順）なので、出る行は必ずどちらか一方。
+                //   ※自動補正の行は文言も書式も従来のまま（既存ログの読み方を変えない）。
                 if (key != _refShiftLogKey[idx])
                 {
                     _refShiftLogKey[idx] = key;
-                    if (refShift != Vector3.zero)
+                    if (abs != Vector3.zero)
+                        Plugin.Logger.LogInfo(string.Format(
+                            "[HCharaAdjustmentEx] 手動適用(完全一致・絶対デルタ): {0} {1} abs=({2:F3},{3:F3},{4:F3})",
+                            key, Name(idx), abs.x, abs.y, abs.z)
+                            + (refShift != Vector3.zero
+                                ? string.Format("（自動補正 ({0:F3},{1:F3},{2:F3}) を上書き）",
+                                                refShift.x, refShift.y, refShift.z)
+                                : ""));
+                    else if (refShift != Vector3.zero)
                         Plugin.Logger.LogInfo(string.Format(
                             "[HCharaAdjustmentEx] {0} refAlign=({1:F3},{2:F3},{3:F3})",
                             Name(idx), refShift.x, refShift.y, refShift.z));
                 }
 
-                // ── ガイド非表示中＝適用（瞬間移動を避けスムーズに寄せる） ──
-                Vector3 abs   = GetAbs(exact, idx);
-                Vector3 trans = _transientOffset[idx];
                 bool active = abs != Vector3.zero || refShift != Vector3.zero || trans != Vector3.zero;
                 if (!active && !_wasEnforced[idx]) continue;   // 補正なし＝何もしない
 
@@ -559,8 +574,12 @@ namespace KK_HCharaAdjustmentEx
                 }
             }
             catch { }
+            // 男が参加しないモード（レズ/自慰）は男スロットを固定（MaleParticipates 参照）。
+            // ★外部 API（KK_Rankou）はこの2モードで male に null を渡すので元から "none" になるが、
+            //   将来 null 以外が渡ってもキーがぶれないよう本シーンと同じ規則をここでも掛ける。
+            string maleId = MaleParticipates(mode) ? ChaCardId(male) : "none";
             return mode + "_" + animId + "_" + Sanitize(animName) + "_" + animSig + "_" +
-                   ChaCardId(f1) + "_" + ChaCardId(f2) + "_" + ChaCardId(male);
+                   ChaCardId(f1) + "_" + ChaCardId(f2) + "_" + maleId;
         }
 
         // ChaControl から H シーンの CardId（heroine.charFile.charaFileName）と同じ識別子を得る
@@ -622,6 +641,41 @@ namespace KK_HCharaAdjustmentEx
         }
 
         // ─── キー生成 ─────────────────────────────────────────────────────
+
+        // 男がその行為に参加するモードか。false のモードはキーの男スロットを "none" に固定する。
+        //
+        // ★なぜ必要か（v1.20.4・本体を追って確定）:
+        //   本体 FreeH は**レズ(5)と自慰(3)で男を選ばせない**。`FreeHScene.LesbianSetup()` が結線するのは
+        //   heroine/partner だけで男のカード枠自体が無く（cardMaleNormal / cardMale3P の2つのみ）、
+        //   開始ボタンの成立条件も `n != 0 || resultPlayer != null` / `n != 3 || …` ＝
+        //   **通常(0)と3P(3)のときしか男を要求しない**（Game_FreeHScene.cs:585）。
+        //   ところが選ばれていなくても `player = member.resultPlayer.Value`（同 594）がそのまま H へ渡り、
+        //   `HSceneProc` が `flags.player = flags.player ?? new SaveData.Player(...)`（Game_HSceneProc.cs:761）で
+        //   無条件に埋める（null なら空 ChaFileControl／触っていれば前の選択が commonSpace の
+        //   FreeHBackData 経由で持ち越される）。
+        //   ＝**この2モードのキーに載る男は「そのシーンで決まった値」ではなくセッション履歴の残り**で、
+        //     同じ体位・同じ女で保存しても次回は別キーになって読み出せないことがある。
+        //   男は行為に参加しないのだから、キーから外すのが正しい。
+        //
+        // ★覗き(4)は対象外にしていない: 結合点が無く補正が一切走らない（CouplingForInfo が -1）ので
+        //   キーが効く場面が無く、触っても得が無い。sonyu/houshi/aibu/3P は男が実際に参加するので当然含める。
+        //   自慰から男が加わって sonyu へ遷移した場合も、そのときの mode は 2 なので正しく男が入る。
+        internal static bool MaleParticipates(int mode) => mode != 3 && mode != 5;
+
+        // 既存キーを現行規則へ正規化する（v1.20.3 以前に保存された「男入りのレズ/自慰キー」の移行用）。
+        // 形式が 7 要素でない・対象モードでないものはそのまま返す。
+        internal static string NormalizeKey(string key)
+        {
+            if (string.IsNullOrEmpty(key)) return key;
+            var p = key.Split('_');
+            if (p.Length != 7) return key;                       // 想定外の形＝触らない
+            if (!int.TryParse(p[0], out int mode)) return key;
+            if (MaleParticipates(mode)) return key;
+            if (p[6] == "none") return key;                      // 既に正規化済み
+            p[6] = "none";
+            return string.Join("_", p);
+        }
+
         // mode はアニメ固有の nowAnimationInfo.mode を使う。
         // animSig（女性アニメのアセットパス）を含め、id/名前を流用したMOD体位が
         // バニラ体位とキー衝突しないようにする。
@@ -659,6 +713,10 @@ namespace KK_HCharaAdjustmentEx
                                   flags.player.parameter?.fullname);
             }
             catch { }
+
+            // 男が参加しないモード（レズ/自慰）は男スロットを固定（MaleParticipates 参照）。
+            // ここを通さないと `flags.player` の持ち越し次第でキーが変わり、保存が読み出せなくなる。
+            if (!MaleParticipates(mode)) male = "none";
 
             return mode + "_" + animId + "_" + Sanitize(animName) + "_" + animSig + "_" + f1 + "_" + f2 + "_" + male;
         }

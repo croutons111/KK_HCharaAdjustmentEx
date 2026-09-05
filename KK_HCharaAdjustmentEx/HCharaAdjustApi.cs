@@ -89,7 +89,11 @@ namespace KK_HCharaAdjustmentEx
                 var    src   = AdjustmentStore.GetEntry(key);
                 Vector3 abs1 = HSceneHooks.GetAbs(src, IdxF1);
                 Vector3 abs2 = female2 != null ? HSceneHooks.GetAbs(src, IdxF2) : Vector3.zero;
-                Vector3 absM = HSceneHooks.GetAbs(src, IdxMale);
+                // v1.20.4: 呼び出し側に男が居ないとき（レズ・自慰）は男の保存を**一切見ない**。
+                // 従来は absM を読んで下の分岐条件に入れていたので、本シーンで男だけを動かした保存があると
+                // 「手動保存あり」と判定されて**女の自動補正が無言でゼロになる**（offMale は male==null で
+                // 捨てられるため、何も適用されないのに自動補正だけが消える）。参加しない男の値は無関係。
+                Vector3 absM = male != null ? HSceneHooks.GetAbs(src, IdxMale) : Vector3.zero;
                 if (abs1 != Vector3.zero || abs2 != Vector3.zero || absM != Vector3.zero)
                 {
                     // 手動保存＝保存した見た目そのものを再現（自動補正は参照しない）

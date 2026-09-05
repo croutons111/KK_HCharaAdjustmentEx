@@ -128,6 +128,7 @@ namespace KK_HCharaAdjustmentEx
             _entries.Clear();
             if (!File.Exists(_path)) return;
             int skippedLegacy = 0;
+            int migrated      = 0;
             try
             {
                 foreach (var line in File.ReadAllLines(_path, Encoding.UTF8))
@@ -159,6 +160,26 @@ namespace KK_HCharaAdjustmentEx
                     }
                     if (!ok) continue;
 
+                    // v1.20.4: 男が参加しないモード（レズ/自慰）のキーから男を落とす移行。
+                    // 旧版はセッションの残りカスの男が載っていたので、そのままでは二度と一致しない
+                    //（＝ユーザーが手で追い込んだ値が読めなくなる）。**メモリ上だけ**で読み替え、
+                    // ファイルへは次の通常保存のときに正規化された形で書かれる（読込時に書き戻さない）。
+                    string norm = HSceneHooks.NormalizeKey(k);
+                    if (norm != k)
+                    {
+                        if (_entries.Exists(e => e.key == norm))
+                        {
+                            // 同一体位・同一カード組で男違いの保存が複数ある＝先勝ちで1つだけ残す。
+                            // どちらが「本物」かは決められないので握り潰さず必ず知らせる。
+                            Plugin.Logger.LogWarning(
+                                "[HCharaAdjustmentEx] キー移行: 男違いの重複を破棄（先に読んだ方を採用）"
+                                + " 破棄=" + k + " 採用=" + norm + "（要確認）");
+                            continue;
+                        }
+                        migrated++;
+                        k = norm;
+                    }
+
                     var entry = new Entry
                     {
                         key    = k,
@@ -176,6 +197,9 @@ namespace KK_HCharaAdjustmentEx
                 if (skippedLegacy > 0)
                     Plugin.Logger.LogWarning("[HCharaAdjustmentEx] 旧形式(v1.5以前)の " + skippedLegacy +
                         " 行をスキップ（v1.6で保存セマンティクス変更＝絶対デルタ化。該当体位は要再調整）");
+                if (migrated > 0)
+                    Plugin.Logger.LogInfo("[HCharaAdjustmentEx] キー移行: レズ/自慰の " + migrated +
+                        " 件から男を落として読み替えた（v1.20.4。次の保存でファイルも新形式になる）");
             }
             catch (Exception e)
             {
