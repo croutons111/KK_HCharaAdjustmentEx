@@ -58,6 +58,28 @@ namespace KK_HCharaAdjustmentEx
 
         private static bool _hardFailed;           // 参照ボディ生成不能等（セッション中は機能停止）
 
+        // 【ApiVersion 7】外部の姿勢クロスフェード判定（HCharaAdjustApi.SetPoseBlendQuery で登録）
+        internal static System.Func<ChaControl, bool>? PoseBlendQuery;
+        private static bool _blendQueryWarned;
+
+        // 外部で姿勢を混ぜている最中か（混ぜ途中の骨で測ると補正が狂う＝遷移中と同じく測定を見送る）
+        private static bool IsExternallyBlending(ChaControl? cha)
+        {
+            var q = PoseBlendQuery;
+            if (q == null || cha == null) return false;
+            try { return q(cha); }
+            catch (System.Exception e)
+            {
+                if (!_blendQueryWarned)
+                {
+                    _blendQueryWarned = true;
+                    Plugin.Logger.LogWarning("[HCharaAdjustmentEx] 外部の姿勢クロスフェード判定で例外 → 混ぜていない扱いで測定を続行"
+                        + "（混ぜ途中に測ると補正が狂い得る・要調査）: " + e);
+                }
+                return false;
+            }
+        }
+
         // 非VR/VR は同一 cfg を共有するため、モード別の項目を IsVRMode で選択する
         private static bool EnabledConfig
         {
@@ -249,7 +271,7 @@ namespace KK_HCharaAdjustmentEx
             {
                 if (!_coupCache.TryGetValue(measKey, out int resolved))
                 {
-                    if (anim.IsInTransition(0)) return applied;   // 遷移明けの姿勢で判定する
+                    if (anim.IsInTransition(0) || IsExternallyBlending(cha)) return applied;   // 遷移/外部の混ぜ明けの姿勢で判定する
                     resolved = ResolveHoushiCoup(HSceneHooks.MaleOf(flags), cha, applied);
                     if (resolved < 0) return applied;             // dan 未解決等 → 次フレーム再試行
                     _coupCache[measKey] = resolved;
@@ -275,6 +297,9 @@ namespace KK_HCharaAdjustmentEx
             }
 
             if (_failed.Contains(measKey)) return applied;   // 採取不能なステート（参照側に無い等）
+
+            // 外部で姿勢を混ぜている間はシードも採取も始めない（前の体位の姿勢が残っている）。確定済みの旧シフトを維持
+            if (IsExternallyBlending(cha)) return applied;
 
             // 適用中シフトが無い＝このステート初回（carry も cache も無い）。採取完了までの
             // バニラ表示を避けるため、スケール比の一次近似を暫定シフトとして即適用する。
@@ -652,7 +677,7 @@ namespace KK_HCharaAdjustmentEx
                 var aAnim = realF != null ? realF.animBody : null;
                 if (aAnim == null ||
                     aAnim.GetCurrentAnimatorStateInfo(0).shortNameHash != _coStateHash ||
-                    aAnim.IsInTransition(0))
+                    aAnim.IsInTransition(0) || IsExternallyBlending(realF))
                 { _coAMiss++; return; }    // 実キャラが対象ステートに居ない＝両側とも計上しない
 
                 var pR   = CouplingPos(refCha, _coCoup);

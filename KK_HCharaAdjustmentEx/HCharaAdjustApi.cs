@@ -16,10 +16,12 @@ namespace KK_HCharaAdjustmentEx
     /// 【ApiVersion 6】3P（女2人）用の TryComputeAdjustment オーバーロードを追加。
     ///   2人版は女2に null を渡すためキーの女2が "none" になり、本シーンの 3P で保存した
     ///   調整とは別枠になっていた（保存側は最初から f1/f2/male の3スロットを持っている）。
+    /// 【ApiVersion 7】SetPoseBlendQuery を追加。外部プラグインが骨の姿勢を自前で混ぜている間
+    ///   （例: KK_Rankou の体位変更クロスフェード）は、本シーンの自動補正の測定を見送る。
     /// </summary>
     public static class HCharaAdjustApi
     {
-        public const int ApiVersion = 6;
+        public const int ApiVersion = 7;
 
         // AdjustmentStore.Entry / Hooks.GetAbs のキャラ添字
         private const int IdxF1 = 0, IdxF2 = 1, IdxMale = 2;
@@ -33,6 +35,18 @@ namespace KK_HCharaAdjustmentEx
 
         private static readonly Dictionary<ChaControl, Bones> _bones =
             new Dictionary<ChaControl, Bones>();
+
+        /// <summary>
+        /// 【ApiVersion 7】「このキャラはいま外部で姿勢を混ぜている」を返す関数を登録する（null で解除）。
+        /// 混ぜの途中の骨は前の体位の姿勢が残っており、そこで測ると自動補正が大きく狂う（実測: 縦に大きくずれ、
+        /// ステートごとのキャッシュに残る）。true の間は本体の Animator 遷移中と同じ扱い＝シード計算と
+        /// 同時採取の開始を見送り、採取窓のフレームも計上しない（確定済みのシフトは適用し続ける）。
+        /// </summary>
+        public static void SetPoseBlendQuery(System.Func<ChaControl, bool>? query)
+        {
+            RefAlign.PoseBlendQuery = query;
+            Plugin.Logger.LogInfo("[HCharaAdjustmentEx] API: 外部の姿勢クロスフェード判定を" + (query != null ? "登録" : "解除"));
+        }
 
         /// <summary>【v1.12 で撤去】スケール比 comp は参照アライメントに置換された。常に false（計算不能）。</summary>
         public static bool TryComputeBodyComp(ChaControl female, ChaControl male, int mode, out Vector3 compWorld)

@@ -60,6 +60,9 @@ namespace KK_HCharaAdjustmentEx
 
         // 体位切替ごとの補正量ログ（診断用）の重複抑止
         private static readonly string[] _refShiftLogKey = { "", "", "" };
+        // v1.21.1: その体位で補正量が出たことをログ済みか。体位が変わった最初のフレームは外部の姿勢クロスフェード
+        //   （ApiVersion 7）で測定を見送り 0 のことがある＝0 の間はログ済みにせず、初めて非ゼロになったときに出す。
+        private static readonly bool[] _refShiftLogged = new bool[3];
 
         // 直前フレームで root を強制していたか（ゼロ化した瞬間のバニラ復元用）
         private static readonly bool[] _wasEnforced = new bool[3];
@@ -229,6 +232,7 @@ namespace KK_HCharaAdjustmentEx
                 _hipsTrf[i]           = null;
                 _heightTrf[i]         = null;
                 _refShiftLogKey[i]        = "";
+                _refShiftLogged[i]        = false;
                 _wasEnforced[i]       = false;
                 _draggedPose[i]       = false;
                 _transientOffset[i]   = Vector3.zero;
@@ -330,6 +334,11 @@ namespace KK_HCharaAdjustmentEx
                 if (key != _refShiftLogKey[idx])
                 {
                     _refShiftLogKey[idx] = key;
+                    _refShiftLogged[idx] = false;
+                }
+                if (!_refShiftLogged[idx] && (abs != Vector3.zero || refShift != Vector3.zero))
+                {
+                    _refShiftLogged[idx] = true;
                     if (abs != Vector3.zero)
                         Plugin.Logger.LogInfo(string.Format(
                             "[HCharaAdjustmentEx] 手動適用(完全一致・絶対デルタ): {0} {1} abs=({2:F3},{3:F3},{4:F3})",
